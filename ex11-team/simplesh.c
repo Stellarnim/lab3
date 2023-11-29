@@ -17,11 +17,17 @@ int getargs(char *cmd, char **argv);
 
 void handle_signal(int signo);
 void command_exit();
-void command_ls();
+void command_ls(const char *dir);
 void command_pwd();
-void command_cd(char *dirname);
-void command_mkdir(char *dirname);
-void command_rmdir(char *dirname);
+void command_cd(const char *path);
+void command_mkdir(const char *path);
+void command_rmdir(const char *path);
+void command_ln(const char *target, const char *linkpath);
+void command_cp(const char *src, const char *dest);
+void command_rm(const char *path);
+void command_mv(const char *oldpath, const char *newpath);
+void command_cat(const char *filename);
+
 int main() {
     char buf[MAX_INPUT_LENGTH];
     char *argv[MAX_ARGS];
@@ -34,41 +40,93 @@ int main() {
     while (1) {
         printf("shell> ");
         if (fgets(buf, sizeof(buf), stdin) == NULL) {
-            perror("입력 오류");
+            perror("input error");
             exit(EXIT_FAILURE);
         }
 
-        buf[strcspn(buf, "\n")] = '\0'; // Remove trailing newline
+        buf[strcspn(buf, "\n")] = '\0';
+
+        int narg = getargs(buf, argv);
+        
+        if (narg == 0) continue;
+
+ //       if (narg > 0 && strcspn(argv[narg], |) == 0)
 
         if (strcmp(buf, "exit") == 0) {
             command_exit();
         }
         else if (strcmp(buf, "ls") == 0) {
-            command_ls();
+            command_ls(narg > 1 ? argv[1] : ".");
             continue;
         }
         else if (strcmp(buf, "pwd") == 0){
             command_pwd();
             continue;
         }
-/*        else if (strcmp(buf, "cd") == 0){
-            char *dirname = buf + 3;
-            command_cd(dirname);
-            continue;
-        } */
-        else if (strcmp(buf, "mkdir") == 0){
-            char *dirname = buf + 6;
-            command_mkdir(dirname);
+        else if (strcmp(argv[0], "cd") == 0) {
+            if (narg < 2) {
+                fprintf(stderr, "cd: Argument required\n");
+            } else {
+                command_cd(argv[1]);
+            }
             continue;
         }
-        else if (strcmp(buf, "rmdir") == 0){
-            char *dirname = buf + 6;
-            command_rmdir(dirname);
+        else if (strcmp(argv[0], "mkdir") == 0){
+            if (narg < 2) {
+                fprintf(stderr, "mkdir: Directory name required\n");
+            } else {
+                command_mkdir(argv[1]);
+            }
             continue;
         }
-
-
-        int narg = getargs(buf, argv);
+        else if (strcmp(argv[0], "rmdir") == 0){
+            if (narg < 2) {
+                fprintf(stderr, "rmdir: Directory name required\n");
+            } else {
+                command_rmdir(argv[1]);
+            }
+            continue;
+        }
+        else if (strcmp(argv[0], "ln") == 0){
+            if (narg < 3) {
+                fprintf(stderr, "ln: Target File and Path required\n");
+            } else {
+                command_ln(argv[1], argv[2]);
+            }
+            continue;
+        }
+        else if (strcmp(argv[0], "cp") == 0){
+            if (narg < 3) {
+                fprintf(stderr, "cp: Target File and Source File Path required\n");
+            } else {
+                command_cp(argv[1], argv[2]);
+            }
+            continue;
+        }
+        else if (strcmp(argv[0], "rm") == 0){
+            if (narg < 2) {
+                fprintf(stderr, "rm: File Path required\n");
+            } else {
+                command_rm(argv[1]);
+            }
+            continue;
+        }
+        else if (strcmp(argv[0], "mv") == 0){
+            if (narg < 3) {
+                fprintf(stderr, "mv: Target File and path required\n");
+            } else {
+                command_mv(argv[1], argv[2]);
+            }
+            continue;
+        }
+        else if (strcmp(argv[0], "cat") == 0){
+            if (narg < 2) {
+                fprintf(stderr, "cat: Filename required\n");
+            } else {
+                command_cat(argv[1]);
+            }
+            continue;
+        }
 
         if (narg > 0 && strcmp(argv[narg - 1], "&") == 0) {
             background = 1;
@@ -77,7 +135,6 @@ int main() {
         else {
             background = 0;
         }
- //       if (narg > 0 && strcspn())
 
         pid = fork();
 
@@ -119,11 +176,6 @@ int getargs(char *cmd, char **argv) {
     return narg;
 }
 
-void command_exit(){
-    printf("shell program close.\n");
-    exit(0);
-}
-
 void handle_signal(int signo){
     if(signo == SIGINT){
         printf("\nCtrl-C (SIGINT)\n");
@@ -135,26 +187,29 @@ void handle_signal(int signo){
     }
 }
 
-void command_ls(){
-	DIR *dir = opendir(".");
+void command_exit(){
+    printf("shell program close.\n");
+    exit(0);
+}
 
-	if (!dir) {
+void command_ls(const char *dir){
+	DIR *d = opendir(dir);
+    struct dirent *entry;
+
+	if (!d) {
 		perror("open dir failed");
-		exit(1);
+		return;
 	}
 
-	struct dirent *entry;
 
-	while ((entry = readdir(dir)) != NULL) {
+	while ((entry = readdir(d)) != NULL) {
         if (strcmp(entry->d_name, ".") != 0 && strcmp(entry->d_name, "..") != 0) {
         printf("%s", entry->d_name);
-			
-			printf("    ");
+		printf("    ");
         }
-		
 	}
     printf("\n");
-	closedir(dir);
+	closedir(d);
 }
 
 void command_pwd(){
@@ -167,29 +222,76 @@ void command_pwd(){
     }
 }
 
-/*void command_cd(char *dirname){
-    if (chdir(dirname) == 0) {
-        printf("\n %s/", dirname);
+void command_cd(const char *path) {
+    if (chdir(path) != 0) {
+        perror("chdir");
     }
-    else {
-        perror("chdir failed");
-    }
-}*/
+}
 
-void command_mkdir(char *dirname){
-    if(mkdir(dirname, 0777) == 0){
-        printf("\n");
-    }
-    else{
+void command_mkdir(const char *path){
+    if(mkdir(path, 0777) != 0){
         perror("mkdir failed");
     }
 }
 
-void command_rmdir(char *dirname){
-    if(mkdir(dirname, 0777) == 0){
-        printf("\n");
+void command_rmdir(const char *path){
+    if(rmdir(path) != 0){
+        perror("rmdir failed");
     }
-    else{
-        perror("mkdir failed");
+}
+
+void command_ln(const char *target, const char *linkpath) {
+    if (link(target, linkpath) != 0) {
+        perror("link");
     }
+}
+
+void command_cp(const char *src, const char *dest) {
+    FILE *srcFile, *destFile;
+    char buffer[1024];
+    size_t bytesRead;
+
+    srcFile = fopen(src, "rb");
+    if (srcFile == NULL) {
+        perror("fopen");
+        return;
+    }
+    destFile = fopen(dest, "wb");
+    if (destFile == NULL) {
+        perror("fopen");
+        fclose(srcFile);
+        return;
+    }
+    while ((bytesRead = fread(buffer, 1, sizeof(buffer), srcFile)) > 0) {
+        fwrite(buffer, 1, bytesRead, destFile);
+    }
+    fclose(srcFile);
+    fclose(destFile);
+}
+
+void command_rm(const char *path) {
+    if (unlink(path) != 0) {
+        perror("unlink");
+    }
+}
+
+void command_mv(const char *oldpath, const char *newpath) {
+    if (rename(oldpath, newpath) != 0) {
+        perror("rename");
+    }
+}
+
+void command_cat(const char *filename) {
+    FILE *file;
+    char buffer[1024];
+
+    file = fopen(filename, "r");
+    if (file == NULL) {
+        perror("fopen");
+        return;
+    }
+    while (fgets(buffer, sizeof(buffer), file)) {
+        printf("%s", buffer);
+    }
+    fclose(file);
 }
