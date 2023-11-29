@@ -57,13 +57,14 @@ int main() {
         if (pid == 0) {
             if(background){
                 setsid();
+                printf("run background.");
             }
             execvp(argv[0], argv);
             perror("execvp failed");
             exit(EXIT_FAILURE);
         } else if (pid > 0) {
             if (!background){
-                wait(NULL);
+                waitpid(pid, NULL, 0);
             }
         } else {
             perror("fork failed");
